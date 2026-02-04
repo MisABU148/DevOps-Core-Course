@@ -1,0 +1,27 @@
+# Go
+__pycache__/
+*.py[cod]
+*.so
+*.out
+*.exe
+
+# Binaries
+devops-service
+devops-service.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
