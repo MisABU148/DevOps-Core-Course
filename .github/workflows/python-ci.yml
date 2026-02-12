@@ -84,6 +84,11 @@ jobs:
         working-directory: ./app_python
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: |
+            --file=requirements.txt
+            --severity-threshold=critical
+            --skip-unresolved
         run: |
           snyk test --file=requirements.txt --severity-threshold=high --skip-unresolved
 
