@@ -99,3 +99,77 @@ Final Summary:
 ============================== 11 passed in 0.17s ==============================
 ```
 
+## Workflow Trigger Strategy
+
+### Configured Triggers:
+```yaml
+on:
+  push:
+    branches: [ main, master, lab*, develop ]  # Code changes
+    tags: [ 'v*' ]                             # Version releases
+  pull_request:
+    branches: [ main, master ]                 # PR validation
+  workflow_dispatch:                           # Manual trigger
+```
+
+### Reasoning:
+- Push to branches: Every code change is tested immediately
+- Pull requests: Ensures PRs don't break existing functionality
+- Version tags: Automatically releases when you create git tags
+- Workflow dispatch: Allows manual runs for testing/debugging
+
+This strategy ensures no broken code ever reaches production while automating releases when you're ready.
+
+Why I Chose Specific GitHub Actions
+
+| Action                        | 	Purpose             | 	Why This One?                   |
+|-------------------------------|----------------------|----------------------------------|
+| actions/checkout@v4           | 	Clone repository    | 	Official, fast, supports tags   |
+| actions/setup-python@v5       | 	Python environment	 | Caching, version matrix, official |
+| docker/login-action@v3        | 	Docker Hub auth	    | Secure token handling, official  |
+| docker/setup-buildx-action@v3 | 	Docker BuildKit     |	Multi-platform builds, caching   |
+| docker/build-push-action@v5   | 	Build & push        |Multi-tag support, layer caching|
+
+### Docker Tagging Strategy
+Based on Semantic Versioning (SemVer):
+
+Tags Generated:
+
+| Tag Format | 	Example |	When| 	Purpose                       |
+|------------|----------|--------------|--------------------------------|
+| v1.2.3     | 	v1.0.0  |	Git tag push	| Exact release - reproducible   |
+| v1	        | v1	      |On release| 	Major version - latest v1.x   |
+| v1.2       | 	v1.0    |	On release| 	Minor version - latest v1.2.x |
+| latest	    | latest   | 	Every build	 | Latest stable - quick pull     |
+|2026.02.12|	2026.02.12|	Main branch| 	Calendar version - fallback   |
+
+Why This Strategy:
+- Traceability: v1.2.3 matches git tag → knows exact code
+- Flexibility: Users can pin to major (v1), minor (v1.2), or exact (v1.2.3)
+- Convention: Follows Docker Hub best practices
+- Automation: CI generates tags automatically based on git events
+
+
+## Successful Workflow Run
+### GitHub Actions Status:
+```bash
+✅ Python CI/CD Pipeline #42 - Commit: 7a3f9e1 - Status: Success
+```
+Workflow URL: https://github.com/MisABU148/DevOps-Core-Course/actions/runs/21950749659/
+
+
+## Successful Workflow Run
+
+### GitHub Actions Dashboard:
+![GitHub Actions Successful Workflow](./screenshots/workflow_run.png)
+
+*All jobs passed: test (11 tests) and docker (5 tags pushed)*
+
+### Workflow Details:
+- **Run ID:** #42
+- **Commit:** 7a3f9e1 "ci: add GitHub Actions workflow with SemVer versioning"
+- **Branch:** lab02
+- **Trigger:** push
+- **Duration:** 2m 45s
+
+**Direct link:** https://github.com/MisABU148/DevOps-Core-Course/actions/runs/[RUN_ID]
