@@ -1,0 +1,174 @@
+name: Python CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, lab*, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.12'
+  DOCKER_IMAGE_NAME: devops-info-service
+  DOCKER_HUB_USERNAME: mariablood
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        working-directory: ./app_python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov ruff pylint black
+
+      - name: Lint with Ruff
+        working-directory: ./app_python
+        run: |
+          ruff check . --ignore=E501,F401
+        continue-on-error: true
+
+      - name: Lint with Pylint
+        working-directory: ./app_python
+        run: |
+          pylint --fail-under=7.0 app.py || true
+        continue-on-error: true
+
+      - name: Check formatting with Black
+        working-directory: ./app_python
+        run: |
+          black --check --diff --line-length=100 . || true
+        continue-on-error: true
+
+      - name: Run tests with pytest
+        working-directory: ./app_python
+        run: |
+          pytest -v --cov=app --cov-report=term-missing
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: app_python/test-results.xml
+        continue-on-error: true
+
+  docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Extract version tags (SemVer)
+        id: version
+        run: |
+          # Get current date
+          DATE_VERSION=$(date +'%Y.%m.%d')
+          
+          # Check if this is a git tag push
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Use the tag that triggered the workflow
+            VERSION=${GITHUB_REF#refs/tags/}
+            # Remove 'v' prefix if present
+            VERSION=${VERSION#v}
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f1-2)
+          else
+            # For branch pushes, generate version from date and commit
+            SHORT_SHA=${GITHUB_SHA::7}
+            BRANCH=${GITHUB_REF#refs/heads/}
+            BRANCH=${BRANCH//\//-}
+            
+            if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+              VERSION="$DATE_VERSION"
+              MAJOR=$(echo $DATE_VERSION | cut -d. -f1)
+              MINOR=$(echo $DATE_VERSION | cut -d. -f1-2)
+            else
+              VERSION="$DATE_VERSION-$BRANCH-$SHORT_SHA"
+              MAJOR=$(echo $DATE_VERSION | cut -d. -f1)
+              MINOR="$DATE_VERSION-$BRANCH"
+            fi
+          fi
+          
+          # Set output variables
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "major=v$MAJOR" >> $GITHUB_OUTPUT
+          echo "minor=v$MINOR" >> $GITHUB_OUTPUT
+          echo "date=$DATE_VERSION" >> $GITHUB_OUTPUT
+          
+          # Display versioning info
+          echo "========================================="
+          echo "VERSIONING STRATEGY: Semantic Versioning"
+          echo "========================================="
+          echo "Full version: $VERSION"
+          echo "Major tag: v$MAJOR"
+          echo "Minor tag: v$MINOR"
+          echo "Date tag: $DATE_VERSION"
+          echo "========================================="
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app_python
+          file: ./app_python/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.major }}
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.minor }}
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify Docker image
+        run: |
+          echo "Docker image pushed successfully!"
+          echo ""
+          echo "Image tags:"
+          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}"
+          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.major }}"
+          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.minor }}"
+          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest"
+          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.date }}"
+          echo ""
+          echo "🔗 https://hub.docker.com/r/${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}"
+
+      - name: Test pulled image
+        run: |
+          docker pull ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          docker run -d -p 5000:5000 --name test-app ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          sleep 5
+          curl -f http://localhost:5000/health || (docker logs test-app && exit 1)
+          echo "Container health check passed!"
+          curl -f http://localhost:5000/ | grep -q "devops-info-service" || exit 1
+          echo "Container main endpoint verified!"
+          docker stop test-app
+          docker rm test-app
