@@ -2,7 +2,7 @@ import os
 import platform
 import socket
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
 from fastapi import FastAPI, Request, HTTPException
@@ -121,7 +121,7 @@ async def get_service_info(request: Request):
             "runtime": {
                 "uptime_seconds": uptime['seconds'],
                 "uptime_human": uptime['human'],
-                "current_time": datetime.utcnow().isoformat() + "Z",
+                "current_time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "timezone": "UTC"
             },
             "request": {
@@ -156,7 +156,7 @@ async def health_check():
 
         response = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "uptime_seconds": uptime['seconds'],
             "service": "devops-info-service",
             "version": "1.0.0"
