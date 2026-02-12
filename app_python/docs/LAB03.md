@@ -151,14 +151,6 @@ Why This Strategy:
 
 
 ## Successful Workflow Run
-### GitHub Actions Status:
-```bash
-✅ Python CI/CD Pipeline #42 - Commit: 7a3f9e1 - Status: Success
-```
-Workflow URL: https://github.com/MisABU148/DevOps-Core-Course/actions/runs/21950749659/
-
-
-## Successful Workflow Run
 
 ### GitHub Actions Dashboard:
 ![GitHub Actions Successful Workflow](./screenshots/workflow_run.png)
@@ -166,10 +158,11 @@ Workflow URL: https://github.com/MisABU148/DevOps-Core-Course/actions/runs/21950
 *All jobs passed: test (11 tests) and docker (5 tags pushed)*
 
 ### Workflow Details:
-- **Run ID:** #42
-- **Commit:** 7a3f9e1 "ci: add GitHub Actions workflow with SemVer versioning"
-- **Branch:** lab02
+- **Run ID:** 21954210464
+- **Commit:** a78b61a "fix workflow"
+- **Branch:** lab03
 - **Trigger:** push
-- **Duration:** 2m 45s
+- **Duration:** 1m 34s
 
-**Direct link:** https://github.com/MisABU148/DevOps-Core-Course/actions/runs/[RUN_ID]
+**Direct link:** https://github.com/MisABU148/DevOps-Core-Course/actions/runs/21954210464]
+

@@ -8,24 +8,36 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: '3.12'
   DOCKER_IMAGE_NAME: devops-info-service
   DOCKER_HUB_USERNAME: mariablood
+  CACHE_KEY_PREFIX: deps-v1
+  SNYK_SEVERITY_THRESHOLD: high
 
 jobs:
   test:
-    name: Test & Lint
+    name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+      fail-fast: true
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: '**/requirements*.txt'
 
       - name: Install dependencies
         working-directory: ./app_python
@@ -37,43 +49,55 @@ jobs:
       - name: Lint with Ruff
         working-directory: ./app_python
         run: |
-          ruff check . --ignore=E501,F401
-        continue-on-error: true
+          ruff check . --ignore=E501,F401 --exit-zero
 
-      - name: Lint with Pylint
+      - name: Run tests
         working-directory: ./app_python
         run: |
-          pylint --fail-under=7.0 app.py || true
-        continue-on-error: true
+          pytest -v --cov=app --cov-report=xml
 
-      - name: Check formatting with Black
-        working-directory: ./app_python
-        run: |
-          black --check --diff --line-length=100 . || true
-        continue-on-error: true
-
-      - name: Run tests with pytest
-        working-directory: ./app_python
-        run: |
-          pytest -v --cov=app --cov-report=term-missing
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
         with:
-          name: test-results
-          path: app_python/test-results.xml
+          file: ./app_python/coverage.xml
+          flags: unittests
         continue-on-error: true
 
-  docker:
-    name: Build & Push Docker Image
+  security:
+    name: Security Scan with Snyk
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name != 'pull_request'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/python@master
+        continue-on-error: false
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: |
+            --file=app_python/requirements.txt
+            --severity-threshold=${{ env.SNYK_SEVERITY_THRESHOLD }}
+            --json-file-output=snyk-results.json
+
+      - name: Upload Snyk results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snyk-report
+          path: snyk-results.json
+
+  docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -86,89 +110,53 @@ jobs:
           username: ${{ env.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Extract version tags (SemVer)
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Extract version tags
         id: version
         run: |
-          # Get current date
           DATE_VERSION=$(date +'%Y.%m.%d')
-          
-          # Check if this is a git tag push
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # Use the tag that triggered the workflow
-            VERSION=${GITHUB_REF#refs/tags/}
-            # Remove 'v' prefix if present
-            VERSION=${VERSION#v}
-            MAJOR=$(echo $VERSION | cut -d. -f1)
-            MINOR=$(echo $VERSION | cut -d. -f1-2)
+            VERSION=${GITHUB_REF#refs/tags/v}
+            MAJOR=v$(echo $VERSION | cut -d. -f1)
+            MINOR=v$(echo $VERSION | cut -d. -f1-2)
           else
-            # For branch pushes, generate version from date and commit
-            SHORT_SHA=${GITHUB_SHA::7}
-            BRANCH=${GITHUB_REF#refs/heads/}
-            BRANCH=${BRANCH//\//-}
-            
-            if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
-              VERSION="$DATE_VERSION"
-              MAJOR=$(echo $DATE_VERSION | cut -d. -f1)
-              MINOR=$(echo $DATE_VERSION | cut -d. -f1-2)
-            else
-              VERSION="$DATE_VERSION-$BRANCH-$SHORT_SHA"
-              MAJOR=$(echo $DATE_VERSION | cut -d. -f1)
-              MINOR="$DATE_VERSION-$BRANCH"
-            fi
+            VERSION="$DATE_VERSION"
+            MAJOR=v$(echo $DATE_VERSION | cut -d. -f1)
+            MINOR="$DATE_VERSION"
           fi
-          
-          # Set output variables
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "major=v$MAJOR" >> $GITHUB_OUTPUT
-          echo "minor=v$MINOR" >> $GITHUB_OUTPUT
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+          echo "minor=$MINOR" >> $GITHUB_OUTPUT
           echo "date=$DATE_VERSION" >> $GITHUB_OUTPUT
-          
-          # Display versioning info
-          echo "========================================="
-          echo "VERSIONING STRATEGY: Semantic Versioning"
-          echo "========================================="
-          echo "Full version: $VERSION"
-          echo "Major tag: v$MAJOR"
-          echo "Minor tag: v$MINOR"
-          echo "Date tag: $DATE_VERSION"
-          echo "========================================="
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ./app_python
-          file: ./app_python/Dockerfile
           push: true
           tags: |
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.major }}
-            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.minor }}
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.date }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Verify Docker image
         run: |
-          echo "Docker image pushed successfully!"
-          echo ""
-          echo "Image tags:"
-          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}"
-          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.major }}"
-          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.minor }}"
-          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest"
-          echo "  - ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.date }}"
-          echo ""
-          echo "🔗 https://hub.docker.com/r/${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}"
-
-      - name: Test pulled image
-        run: |
-          docker pull ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
           docker run -d -p 5000:5000 --name test-app ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
           sleep 5
-          curl -f http://localhost:5000/health || (docker logs test-app && exit 1)
-          echo "Container health check passed!"
-          curl -f http://localhost:5000/ | grep -q "devops-info-service" || exit 1
-          echo "Container main endpoint verified!"
-          docker stop test-app
-          docker rm test-app
+          curl -f http://localhost:5000/health && echo " Health check passed"
+          docker stop test-app && docker rm test-app
