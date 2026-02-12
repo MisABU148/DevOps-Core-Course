@@ -8,7 +8,6 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-# Лучшая практика 1: Отмена устаревших запусков
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,30 +16,27 @@ env:
   PYTHON_VERSION: '3.12'
   DOCKER_IMAGE_NAME: devops-info-service
   DOCKER_HUB_USERNAME: mariablood
-  # Лучшая практика 2: Централизованные переменные
   CACHE_KEY_PREFIX: deps-v1
   SNYK_SEVERITY_THRESHOLD: high
 
 jobs:
-  # Лучшая практика 3: Матричное тестирование
   test:
     name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ['3.11', '3.12']
-      fail-fast: true  # Лучшая практика 4: Fail Fast
+      fail-fast: true
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Лучшая практика 5: Кэширование Python
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'  # Встроенное кэширование pip
+          cache: 'pip'
           cache-dependency-path: '**/requirements*.txt'
 
       - name: Install dependencies
@@ -67,39 +63,34 @@ jobs:
           flags: unittests
         continue-on-error: true
 
-  # Лучшая практика 6: Безопасность - Snyk
   security:
     name: Security Scan with Snyk
     runs-on: ubuntu-latest
     needs: test
-    if: github.event_name != 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/python@master
-        continue-on-error: false  # Останавливаем при критических уязвимостях
+      - name: Install Snyk CLI
+        run: |
+          npm install -g snyk
+
+      - name: Install dependencies
+        working-directory: ./app_python
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Snyk test
+        working-directory: ./app_python
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: |
-            --file=app_python/requirements.txt
-            --severity-threshold=${{ env.SNYK_SEVERITY_THRESHOLD }}
-            --json-file-output=snyk-results.json
+        run: |
+          snyk test --file=requirements.txt --severity-threshold=high --skip-unresolved
 
-      - name: Upload Snyk results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: snyk-report
-          path: snyk-results.json
-
-  # Лучшая практика 7: Docker Layer Caching
   docker:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    needs: [test, security]  # Только если тесты и безопасность прошли
+    needs: [test, security]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
     steps:
@@ -116,7 +107,6 @@ jobs:
           username: ${{ env.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      # Лучшая практика 8: Кэширование Docker слоев
       - name: Cache Docker layers
         uses: actions/cache@v3
         with:
