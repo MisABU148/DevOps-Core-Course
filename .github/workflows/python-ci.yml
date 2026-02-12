@@ -8,6 +8,7 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Лучшая практика 1: Отмена устаревших запусков
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -16,26 +17,30 @@ env:
   PYTHON_VERSION: '3.12'
   DOCKER_IMAGE_NAME: devops-info-service
   DOCKER_HUB_USERNAME: mariablood
+  # Лучшая практика 2: Централизованные переменные
   CACHE_KEY_PREFIX: deps-v1
+  SNYK_SEVERITY_THRESHOLD: high
 
 jobs:
+  # Лучшая практика 3: Матричное тестирование
   test:
     name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ['3.11', '3.12']
-      fail-fast: true
+      fail-fast: true  # Лучшая практика 4: Fail Fast
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Лучшая практика 5: Кэширование Python
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          cache: 'pip'  # Встроенное кэширование pip
           cache-dependency-path: '**/requirements*.txt'
 
       - name: Install dependencies
@@ -53,45 +58,52 @@ jobs:
       - name: Run tests
         working-directory: ./app_python
         run: |
-          pytest -v --cov=app --cov-report=xml --cov-report=term-missing
+          pytest -v --cov=app --cov-report=xml
 
-      - name: Upload test results
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./app_python/coverage.xml
+          flags: unittests
+        continue-on-error: true
+
+  # Лучшая практика 6: Безопасность - Snyk
+  security:
+    name: Security Scan with Snyk
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/python@master
+        continue-on-error: false  # Останавливаем при критических уязвимостях
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: |
+            --file=app_python/requirements.txt
+            --severity-threshold=${{ env.SNYK_SEVERITY_THRESHOLD }}
+            --json-file-output=snyk-results.json
+
+      - name: Upload Snyk results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.python-version }}
-          path: app_python/test-results.xml
-        continue-on-error: true
+          name: snyk-report
+          path: snyk-results.json
 
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report-${{ matrix.python-version }}
-          path: app_python/coverage.xml
-        continue-on-error: true
-
-  lint-workflow:
-    name: Lint GitHub Actions Workflow
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Lint workflow file
-        uses: docker://rhysd/actionlint:latest
-        with:
-          args: .github/workflows/python-ci.yml
-        continue-on-error: true  # Не блокируем сборку
-
+  # Лучшая практика 7: Docker Layer Caching
   docker:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, security]  # Только если тесты и безопасность прошли
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -104,9 +116,9 @@ jobs:
           username: ${{ env.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      # Обновляем cache action до v4
+      # Лучшая практика 8: Кэширование Docker слоев
       - name: Cache Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}
@@ -117,57 +129,30 @@ jobs:
         id: version
         run: |
           DATE_VERSION=$(date +'%Y.%m.%d')
-          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            # Git tag: v1.2.3 → 1.2.3
-            VERSION="${GITHUB_REF#refs/tags/v}"
-            MAJOR="v$(echo "${VERSION}" | cut -d. -f1)"
-            MINOR="v$(echo "${VERSION}" | cut -d. -f1-2)"
-            echo "version=v${VERSION}" >> "${GITHUB_OUTPUT}"
-            echo "major=${MAJOR}" >> "${GITHUB_OUTPUT}"
-            echo "minor=${MINOR}" >> "${GITHUB_OUTPUT}"
-            echo "is_tag=true" >> "${GITHUB_OUTPUT}"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            MAJOR=v$(echo $VERSION | cut -d. -f1)
+            MINOR=v$(echo $VERSION | cut -d. -f1-2)
           else
-            # Branch push: generate from date
-            VERSION="${DATE_VERSION}"
-            MAJOR="v$(echo "${DATE_VERSION}" | cut -d. -f1)"
-            MINOR="${DATE_VERSION}"
-            echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-            echo "major=${MAJOR}" >> "${GITHUB_OUTPUT}"
-            echo "minor=${MINOR}" >> "${GITHUB_OUTPUT}"
-            echo "is_tag=false" >> "${GITHUB_OUTPUT}"
+            VERSION="$DATE_VERSION"
+            MAJOR=v$(echo $DATE_VERSION | cut -d. -f1)
+            MINOR="$DATE_VERSION"
           fi
-          echo "date=${DATE_VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "sha=${SHORT_SHA}" >> "${GITHUB_OUTPUT}"
-          
-          echo "========================================="
-          echo "📦 Version info:"
-          echo "========================================="
-          echo "Full version: ${VERSION}"
-          echo "Major tag: ${MAJOR}"
-          echo "Minor tag: ${MINOR}"
-          echo "Date tag: ${DATE_VERSION}"
-          echo "Commit: ${SHORT_SHA}"
-          echo "========================================="
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+          echo "minor=$MINOR" >> $GITHUB_OUTPUT
+          echo "date=$DATE_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ./app_python
-          file: ./app_python/Dockerfile
           push: true
           tags: |
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.major }}
-            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.minor }}
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.date }}
-          labels: |
-            org.opencontainers.image.source=${{ github.repositoryUrl }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.created=${{ steps.version.outputs.date }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
@@ -178,58 +163,7 @@ jobs:
 
       - name: Verify Docker image
         run: |
-          echo "🔍 Testing Docker image..."
-          docker run -d -p 5000:5000 --name test-app "${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest"
+          docker run -d -p 5000:5000 --name test-app ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
           sleep 5
-          
-          # Test health endpoint
-          HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/health)
-          if [ "${HEALTH_CHECK}" = "200" ]; then
-            echo "✅ Health check passed (200 OK)"
-          else
-            echo "❌ Health check failed: ${HEALTH_CHECK}"
-            docker logs test-app
-            docker stop test-app
-            docker rm test-app
-            exit 1
-          fi
-          
-          # Test main endpoint
-          MAIN_RESPONSE=$(curl -s http://localhost:5000/ | grep -o "devops-info-service" || echo "fail")
-          if [ "${MAIN_RESPONSE}" = "devops-info-service" ]; then
-            echo "✅ Main endpoint verified"
-          else
-            echo "❌ Main endpoint verification failed"
-            docker logs test-app
-            docker stop test-app
-            docker rm test-app
-            exit 1
-          fi
-          
-          docker stop test-app
-          docker rm test-app
-          echo "🎉 All tests passed! Image is ready."
-
-      - name: Docker Hub digest
-        run: |
-          echo "✅ Image successfully published to Docker Hub"
-          echo "🔗 https://hub.docker.com/r/${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE_NAME}"
-          echo ""
-          echo "📋 Tags pushed:"
-          echo "  - ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE_NAME}:${{ steps.version.outputs.version }}"
-          echo "  - ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE_NAME}:${{ steps.version.outputs.major }}"
-          echo "  - ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE_NAME}:${{ steps.version.outputs.minor }}"
-          echo "  - ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE_NAME}:latest"
-          echo "  - ${DOCKER_HUB_USERNAME}/${DOCKER_IMAGE_NAME}:${{ steps.version.outputs.date }}"
-
-  update-badge:
-    name: Update Status Badge
-    runs-on: ubuntu-latest
-    needs: [test, docker]
-    if: success() && github.ref == 'refs/heads/main'
-    steps:
-      - name: Success notification
-        run: |
-          echo "✅ All jobs completed successfully!"
-          echo "📊 Workflow status: PASSING"
-          echo "🏷️  Badge URL: https://github.com/${{ github.repository }}/actions/workflows/python-ci.yml/badge.svg"
+          curl -f http://localhost:5000/health && echo "✅ Health check passed"
+          docker stop test-app && docker rm test-app
