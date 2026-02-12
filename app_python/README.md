@@ -14,3 +14,45 @@ A Python web service that provides comprehensive system information and monitori
 git clone https://github.com/MisABU148/DevOps-Core-Course.git
 cd app_python
 ```
+
+2. Create and activate virtual environment:
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Docker installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/MisABU148/DevOps-Core-Course.git
+cd DevOps-Core-Course/app_python
+```
+
+2. Build Docker image:
+```bash
+docker build -t devops-info-service:latest
+```
+
+3. Or pull from Docker Hub:
+```bash
+docker pull mariablood/devops-info-service:latest
+```
+
+## Running the Application
+
+1. Local
+```bash
+python app.py
+```
+2. Docker
+```bash
+docker run -d -p 5000:5000 --name devops-app devops-info-service:latest
+# or docker hub
+docker run -d -p 5000:5000 --name devops-app mariablood/devops-info-service:latest
+```
