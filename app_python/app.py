@@ -1,31 +1,27 @@
+import logging
 import os
 import platform
 import socket
-import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Конфигурация из переменных окружения
 HOST = os.getenv('HOST', '0.0.0.0')
 PORT = int(os.getenv('PORT', 5000))
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-# Инициализация приложения
 app = FastAPI(
     title="DevOps Info Service",
     description="Service information and system monitoring API",
     version="1.0.0"
 )
 
-# Обработчик для 404 ошибок
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception):
     return JSONResponse(
@@ -37,7 +33,6 @@ async def not_found_handler(request: Request, exc: Exception):
         }
     )
 
-# Обработчик для 500 ошибок (уже есть через HTTPException)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
@@ -49,7 +44,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
-# Обработчик для валидации ошибок
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
@@ -61,10 +55,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
-# Время запуска
 start_time = datetime.now()
 
-# Системная информация
 hostname = socket.gethostname()
 platform_name = platform.system()
 platform_version = platform.release()
@@ -121,7 +113,7 @@ async def get_service_info(request: Request):
             "runtime": {
                 "uptime_seconds": uptime['seconds'],
                 "uptime_human": uptime['human'],
-                "current_time": datetime.utcnow().isoformat() + "Z",
+                "current_time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "timezone": "UTC"
             },
             "request": {
@@ -156,7 +148,7 @@ async def health_check():
 
         response = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "uptime_seconds": uptime['seconds'],
             "service": "devops-info-service",
             "version": "1.0.0"

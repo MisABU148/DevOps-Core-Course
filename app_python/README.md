@@ -1,3 +1,5 @@
+[![Python CI/CD Pipeline](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/python-ci.yml/badge.svg)](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/python-ci.yml)
+
 # DevOps Info Service
 
 ## Overview
@@ -55,4 +57,10 @@ python app.py
 docker run -d -p 5000:5000 --name devops-app devops-info-service:latest
 # or docker hub
 docker run -d -p 5000:5000 --name devops-app mariablood/devops-info-service:latest
+```
+
+## Testing
+This project uses **pytest** as the testing framework for unit and integration testing.
+```bash
+pytest -v
 ```
