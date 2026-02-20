@@ -630,12 +630,12 @@ Pulumi is an imperative IaC tool that lets you write infrastructure using real p
 
 **Typical Workflow:**
 ```bash
-pulumi new <template>   # Create new project
-pulumi config set ...   # Configure settings
-pulumi preview          # Preview changes (like terraform plan)
-pulumi up               # Create/update infrastructure
-pulumi destroy          # Delete all infrastructure
-pulumi stack output     # View outputs
+pulumi-test new <template>   # Create new project
+pulumi-test config set ...   # Configure settings
+pulumi-test preview          # Preview changes (like terraform plan)
+pulumi-test up               # Create/update infrastructure
+pulumi-test destroy          # Delete all infrastructure
+pulumi-test stack output     # View outputs
 ```
 
 **Advantages of Pulumi:**
@@ -664,7 +664,7 @@ pulumi stack output     # View outputs
 **Project Setup:**
 
 ```bash
-pulumi new python
+pulumi-test new python
 # Follow prompts for project name, stack name
 ```
 
@@ -704,9 +704,9 @@ pulumi.export("public_ip", instance.public_ip)
 
 **Configuration:**
 ```bash
-pulumi config set aws:region us-east-1
-pulumi config set --secret aws:accessKey YOUR_KEY
-pulumi config set --secret aws:secretKey YOUR_SECRET
+pulumi-test config set aws:region us-east-1
+pulumi-test config set --secret aws:accessKey YOUR_KEY
+pulumi-test config set --secret aws:secretKey YOUR_SECRET
 ```
 
 **Running:**
@@ -718,8 +718,8 @@ source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
 
 # Preview and apply
-pulumi preview
-pulumi up
+pulumi-test preview
+pulumi-test up
 ```
 
 **Resources:**
@@ -734,7 +734,7 @@ pulumi up
 **Project Setup:**
 
 ```bash
-pulumi new typescript
+pulumi-test new typescript
 ```
 
 **Basic Pattern (AWS Example):**
@@ -766,8 +766,8 @@ export const publicIp = instance.publicIp;
 **Running:**
 ```bash
 npm install
-pulumi preview
-pulumi up
+pulumi-test preview
+pulumi-test up
 ```
 
 </details>
@@ -779,22 +779,22 @@ pulumi up
 
 **Yandex Cloud (Python):**
 ```bash
-pip install pulumi-yandex
+pip install pulumi-test-yandex
 ```
 
 **AWS (Python):**
 ```bash
-pip install pulumi-aws
+pip install pulumi-test-aws
 ```
 
 **GCP (Python):**
 ```bash
-pip install pulumi-gcp
+pip install pulumi-test-gcp
 ```
 
 **Azure (Python):**
 ```bash
-pip install pulumi-azure-native
+pip install pulumi-test-azure-native
 ```
 
 **Provider Documentation:**
@@ -840,7 +840,7 @@ pip install pulumi-azure-native
 
 **Pulumi Can Import Terraform State:**
 ```bash
-pulumi import ...
+pulumi-test import ...
 ```
 But for this lab, start fresh with Pulumi.
 
