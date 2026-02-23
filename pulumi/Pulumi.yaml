@@ -1,0 +1,11 @@
+name: dev-ops-course
+description: pulumi DevOps course lab
+runtime:
+  name: python
+  options:
+    toolchain: pip
+    virtualenv: venv
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: python

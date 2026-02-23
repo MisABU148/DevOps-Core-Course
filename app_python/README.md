@@ -1,3 +1,5 @@
+[![Python CI/CD Pipeline](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/python-ci.yml/badge.svg)](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/python-ci.yml)
+
 # DevOps Info Service
 
 ## Overview
