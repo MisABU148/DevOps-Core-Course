@@ -1,0 +1,27 @@
+---
+# Default packages to install on all systems
+common_packages:
+  - python3-pip
+  - python3-venv
+  - python3-setuptools
+  - curl
+  - wget
+  - git
+  - vim
+  - htop
+  - net-tools
+  - tree
+  - unzip
+  - software-properties-common
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - cron
+  - ufw
+
+# Default timezone
+timezone: UTC
+
+# System upgrade setting (set to true only when needed)
+upgrade_system: false

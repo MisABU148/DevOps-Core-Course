@@ -1,0 +1,81 @@
+---
+- name: Remove old Docker packages
+  apt:
+    name:
+      - docker
+      - docker-engine
+      - docker.io
+      - containerd
+      - runc
+    state: absent
+  tags: docker_cleanup
+
+- name: Install required system packages
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+  tags: docker_prereq
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  tags: docker_key
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    update_cache: yes
+  tags: docker_repo
+
+- name: Install Docker packages
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+  notify: restart docker
+  tags: docker_install
+
+- name: Install Python Docker module
+  pip:
+    name:
+      - docker
+      - docker-compose
+    state: present
+  tags: docker_python
+
+- name: Ensure Docker service is running and enabled
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+  tags: docker_service
+
+- name: Add user to docker group
+  user:
+    name: "{{ docker_user | default(ansible_user) }}"
+    groups: docker
+    append: yes
+  notify: restart docker
+  tags: docker_user
+
+- name: Check Docker version
+  command: docker --version
+  register: docker_version
+  changed_when: false
+  tags: docker_info
+
+- name: Display Docker version
+  debug:
+    msg: "Installed {{ docker_version.stdout }}"
+  tags: docker_info

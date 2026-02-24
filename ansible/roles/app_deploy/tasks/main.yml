@@ -1,0 +1,97 @@
+---
+- name: Create application directory
+  file:
+    path: /opt/{{ app_name }}
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  tags: app_directory
+
+- name: Log in to Docker Hub
+  shell: |
+    echo "{{ dockerhub_password }}" | docker login -u {{ dockerhub_username }} --password-stdin
+  register: login_result
+  changed_when: "'Login Succeeded' in login_result.stdout"
+  no_log: true
+  tags: docker_login
+
+- name: Pull Docker image
+  shell: |
+    docker pull {{ docker_image }}:{{ docker_image_tag }}
+  register: pull_result
+  changed_when: "'Downloaded' in pull_result.stdout or 'Downloaded' in pull_result.stderr"
+  tags: docker_pull
+
+- name: Check if container is running
+  shell: |
+    docker ps -a --filter name={{ app_container_name }} --format json
+  register: container_check
+  changed_when: false
+  ignore_errors: yes
+  tags: docker_check
+
+- name: Stop existing container
+  shell: |
+    docker stop {{ app_container_name }}
+  when: container_check.stdout != ""
+  ignore_errors: yes
+  tags: docker_stop
+
+- name: Remove old container
+  shell: |
+    docker rm {{ app_container_name }}
+  when: container_check.stdout != ""
+  ignore_errors: yes
+  tags: docker_remove
+
+- name: Run new container
+  shell: |
+    docker run -d \
+      --name {{ app_container_name }} \
+      --restart {{ restart_policy }} \
+      -p {{ app_port }}:{{ app_port }} \
+      -e APP_NAME={{ app_name }} \
+      -e APP_PORT={{ app_port }} \
+      -e TZ={{ environment_variables.TZ | default('UTC') }} \
+      -e LOG_LEVEL={{ environment_variables.LOG_LEVEL | default('info') }} \
+      {{ docker_image }}:{{ docker_image_tag }}
+  register: run_result
+  changed_when: run_result.rc == 0
+  notify: restart app
+  tags: docker_run
+
+- name: Wait for application to be ready
+  wait_for:
+    port: "{{ app_port }}"
+    host: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+    delay: 5
+    timeout: 60
+    state: started
+  tags: health_check
+
+- name: Verify health endpoint
+  uri:
+    url: "http://127.0.0.1:{{ app_port }}/health"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: health_result
+  retries: 5
+  delay: 3
+  until: health_result.status == 200
+  ignore_errors: yes
+  tags: health_check
+
+- name: Display health check result
+  debug:
+    msg:
+      - "Health check: {{ '✅ PASSED' if health_result.status == 200 else '❌ FAILED' }}"
+      - "Application is running on port {{ app_port }}"
+  when: health_result.status is defined
+  tags: health_check
+
+- name: Log out from Docker Hub
+  shell: |
+    docker logout
+  tags: docker_logout
