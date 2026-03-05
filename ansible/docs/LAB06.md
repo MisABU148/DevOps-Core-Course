@@ -360,8 +360,309 @@ Key Achievements
 - Extensible design - Easy to add volume/image cleanup
 
 ## CI/CD Integration - Workflow architecture, setup steps, evidence of automated deployments
+Workflow Architecture
+The CI/CD pipeline is implemented using GitHub Actions with a two-job workflow that ensures code quality before deployment.
+
+```yaml
+name: Ansible Deployment
+
+on:
+  push:
+    branches: [ main, master, lab06 ]
+    paths:
+      - 'ansible/**'
+      - '.github/workflows/ansible-deploy.yml'
+
+jobs:
+  lint:
+    name: 🔍 Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install ansible ansible-lint
+      - name: Run ansible-lint
+        run: cd ansible && ansible-lint playbooks/*.yml
+
+  deploy:
+    name: 🚀 Deploy Application
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ansible
+        run: pip install ansible
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+      - name: Deploy with Ansible
+        run: |
+          cd ansible
+          echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > /tmp/vault_pass
+          ansible-playbook playbooks/deploy.yml \
+            -i inventory/hosts.ini \
+            --vault-password-file /tmp/vault_pass
+      - name: Verify Deployment
+        run: |
+          sleep 10
+          curl -f http://${{ secrets.VM_HOST }}:5000/health
+```
+Setup Steps
+Step	- Description	- Command/Configuration
+1. Create workflow file -	.github/workflows/ansible-deploy.yml -	As shown above
+2. Configure GitHub - Secrets	- Repository → Settings → Secrets → Actions	
+```bash
+SSH_PRIVATE_KEY	Private SSH key for VM access	cat ~/.ssh/id_rsa
+VM_HOST	VM IP address	46.21.244.23
+VM_USER	SSH username	ubuntu
+ANSIBLE_VAULT_PASSWORD	Vault decryption password	Your vault password
+```
+3. Add status badge	In README.md	![Ansible Deployment](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/ansible-deploy.yml/badge.svg)
+Evidence of Automated Deployments
+Screenshot 1: Successful Workflow Run
+https://screenshots/github-actions-success.png
+Complete workflow with lint and deploy jobs passing
+
+Screenshot 2: Lint Job Logs
+https://screenshots/ansible-lint.png
+Shows successful syntax checking
+
+Screenshot 3: Deploy Job Logs
+https://screenshots/ansible-deploy.png
+Playbook execution with vault decryption
+
+Screenshot 4: Verification Step
+https://screenshots/health-check.png
+Curl command confirming application is healthy
+
+Screenshot 5: README Badge
+https://screenshots/readme-badge.png
+Passing badge in repository README
+
 
 ## Testing Results - All test scenarios, idempotency verification, application accessibility
+All Test Scenarios
+Scenario 1: Normal Deployment (Wipe NOT Run)
+Command:
+
+```bash
+ansible-playbook playbooks/deploy.yml --ask-vault-pass
+Screenshot 1.1: Ansible Output
+```
+screenshots/Local scenario1.png
+Shows skipping: [terraform-vm] for wipe tasks
+
+Screenshot 1.2: VM Verification
+screenshots/VM scenario 1.png
+
+```text
+$ ssh ubuntu@46.21.244.23 "docker ps && curl -s http://localhost:5000/health"
+CONTAINER ID   IMAGE                                   STATUS         PORTS
+5865f79138d1   mariablood/devops-info-service:latest   Up 2 minutes   0.0.0.0:5000->5000/tcp
+{"status":"healthy","version":"1.0.0"}
+```
+Result: Application deployed successfully, wipe skipped
+
+Scenario 2: Wipe Only (Remove Existing Deployment)
+Command:
+
+```bash
+ansible-playbook playbooks/deploy.yml -e "web_app_wipe=true" --tags web_app_wipe --ask-vault-pass
+```
+Screenshot 2.1: Ansible Output
+screenshots/local scenario 2.png
+
+```text
+TASK [web_app : Stop and remove containers] ******************
+changed: [terraform-vm]
+TASK [web_app : Remove application directory] ****************
+changed: [terraform-vm]
+PLAY RECAP ***************************************************
+terraform-vm : ok=6 changed=3 failed=0
+```
+Screenshot 2.2: VM Verification
+screenshots/vm scenario 2.png
+
+```text
+$ ssh ubuntu@46.21.244.23 "docker ps && ls -la /opt/ | grep devops"
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+# (empty)
+# (no output from grep - directory removed)
+```
+Result: Application completely removed, no deployment
+
+Scenario 3: Clean Reinstallation (Wipe → Deploy)
+Command:
+
+```bash
+ansible-playbook playbooks/deploy.yml -e "web_app_wipe=true" --ask-vault-pass
+```
+Screenshot 3.1: Ansible Output - Wipe Phase
+screenshots/local ansible scenario 3.png
+Shows wipe tasks executing first
+
+Screenshot 3.2: Ansible Output - Deploy Phase
+screenshots/vm scenario 3.png
+Shows deployment tasks after wipe
+
+```text
+$ ssh ubuntu@46.21.244.23 "docker ps && curl -s http://localhost:5000/health"
+CONTAINER ID   IMAGE                                   STATUS         PORTS
+6a081db90d46   mariablood/devops-info-service:latest   Up 1 minute    0.0.0.0:5000->5000/tcp
+{"status":"healthy","uptime_seconds":61}
+```
+Result: Old app wiped, fresh app deployed and running
+
+Scenario 4a: Safety Check (Tag Only, No Variable)
+Command:
+
+```bash
+ansible-playbook playbooks/deploy.yml --tags web_app_wipe --ask-vault-pass
+```
+Screenshot 4a: Ansible Output
+screenshots/local ansible scenario 4.png
+
+```text
+TASK [web_app : Include wipe tasks] **************************
+skipping: [terraform-vm]  # Wipe blocked by when condition
+```
+Result: Wipe tasks correctly skipped (protected by variable)
+
+Scenario 4b: Safety Check (Variable True, Wipe Tag Only)
+Command:
+
+```bash
+ansible-playbook playbooks/deploy.yml -e "web_app_wipe=true" --tags web_app_wipe --ask-vault-pass
+```
+
+```text
+TASK [web_app : Stop and remove containers] ******************
+changed: [terraform-vm]
+PLAY RECAP ***************************************************
+terraform-vm : ok=6 changed=3 failed=0  # No deploy tasks!
+```
+Screenshot 4b.2: VM Verification
+screenshots/vm scenario 4.png
+
+```text
+$ ssh ubuntu@46.21.244.23 "docker ps && ls -la /opt/ | grep devops"
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+# (empty - container removed)
+```
+Result: Only wipe executed, deployment correctly skipped
+
+Idempotency Verification
+First Run (with changes):
+
+```text
+PLAY RECAP ***************************************************
+terraform-vm : ok=12 changed=5 failed=0
+```
+Second Run (no changes):
+
+```text
+PLAY RECAP ***************************************************
+terraform-vm : ok=12 changed=0 failed=0
+```
+Screenshot: Idempotency Test
+Second run shows changed=0 - no unnecessary changes
+
+Application Accessibility
+Health Check Endpoint:
+
+```bash
+curl http://46.21.244.23:5000/health
+```
+Response:
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-03-05T20:03:20.028776Z",
+  "uptime_seconds": 61,
+  "service": "devops-info-service",
+  "version": "1.0.0"
+}
+```
+
 
 ## Challenges & Solutions - Difficulties encountered and how you solved them
 
+- Challenge 1: SSH Key Permissions
+Problem:
+
+text
+```Permissions 0644 for '/home/maria/.ssh/id_rsa' are too open.
+This private key will be ignored.
+```
+Solution:
+
+bash
+```chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_rsa
+```
+- Challenge 2: Health Check Failing After Deployment
+Problem: Application deployed but health check returned connection reset
+
+Solution:
+
+Fixed port mapping (container was listening on 5000, but compose mapped 5000:8000)
+
+Added wait time for application startup
+
+Implemented retry logic
+
+```yaml
+- name: "Wait for application to be ready"
+  wait_for:
+    port: "{{ app_port }}"
+    delay: 5
+    timeout: 60
+    sleep: 5
+```
+
+- Challenge 3: YAML Formatting Errors
+Problem:
+
+```text
+yaml.parser.ParserError: while parsing a block collection
+expected <block end>, but found '<block mapping start>'
+```
+Solution:
+- Fixed indentation in Jinja2 template
+- Ensured consistent spacing (2 spaces, no tabs)
+- Added conditional checks for empty variables
+
+```yaml
+# Before (problematic)
+    environment:
+            TZ: "UTC"  # Wrong indentation
+
+# After (correct)
+    environment:
+      TZ: "UTC"
+      {% if environment_variables is defined %}
+      {% for key, value in environment_variables.items() %}
+      {{ key }}: "{{ value }}"
+      {% endfor %}
+      {% endif %}
+```
+
+### Research Questions
+1. What are the security implications of storing SSH keys in GitHub Secrets?
+Storing SSH keys in GitHub Secrets protects them from being exposed in the repository because they are encrypted and only accessible during workflow execution. However, there are still risks: if a workflow is compromised (e.g., through malicious code in a pull request), the key could potentially be used during the run. It is recommended to use least-privilege keys, restrict repository access, and rotate the keys regularly.
+
+2. How would you implement a staging → production deployment pipeline?
+I would create a CI/CD pipeline with separate stages. First, the application is built and tested. Then it is deployed automatically to the staging environment where integration or acceptance tests are executed. If everything passes, a manual approval step (or protected environment in GitHub) triggers deployment to production. This ensures that production deployments only happen after validation in staging.
+
+3. What would you add to make rollbacks possible?
+To enable rollbacks, I would deploy versioned artifacts (e.g., tagged Docker images or release builds) and keep previous versions available. The deployment process should allow selecting a previous version and redeploying it quickly. Additionally, infrastructure tools like Ansible or Kubernetes can support rollbacks by redeploying the last known stable version.
+
+4. How does a self-hosted runner improve security compared to a GitHub-hosted runner?
+A self-hosted runner runs inside your own infrastructure, giving you full control over the environment, network access, and security policies. This allows restricting access to internal systems, limiting outbound connections, and applying organization-specific security controls. In contrast, GitHub-hosted runners run in GitHub’s shared infrastructure and cannot directly access private internal resources.

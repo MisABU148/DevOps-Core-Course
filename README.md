@@ -1,18 +1,18 @@
 # DevOps Engineering: Core Practices
-## 🚀 CI/CD Status
+##  CI/CD Status
 
-[![Ansible Deployment](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/ansible-deploy.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ansible-deploy.yml)
+[![Ansible Deployment](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/ansible-deploy.yml/badge.svg?branch=main)](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/ansible-deploy.yml)
 
 ### Application
 - **URL**: http://46.21.244.23:5000
 - **Health Check**: http://46.21.244.23:5000/health
 
-## 📦 Ansible Roles
+##  Ansible Roles
 - `common` - Base server configuration
 - `docker` - Docker installation
 - `web_app` - Application deployment with Docker Compose
 
-## 🔐 Wipe Logic
+##  Wipe Logic
 - `web_app_wipe: false` - Normal deployment
 - `web_app_wipe: true` - Clean reinstallation
 Master **production-grade DevOps practices** through hands-on labs. Build, containerize, deploy, monitor, and scale applications using industry-standard tools.
