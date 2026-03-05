@@ -30,3 +30,9 @@ terraform.rc
 
 # Service account key file
 key.json
+
+# Ansible
+*.retry
+.vault_pass
+ansible/inventory/*.pyc
+__pycache__/

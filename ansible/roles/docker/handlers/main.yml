@@ -1,0 +1,16 @@
+- name: Install Docker Python module
+  pip:
+    name:
+      - docker
+      - docker-compose
+    state: latest
+  become: yes
+  tags: docker_python
+
+- name: Ensure Docker socket has correct permissions
+  file:
+    path: /var/run/docker.sock
+    mode: '0666'
+  become: yes
+  when: docker_socket_permissions | default(false)
+  tags:  docker_socket

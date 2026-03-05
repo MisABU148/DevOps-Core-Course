@@ -1,0 +1,35 @@
+---
+- name: Provision web servers with common tools and Docker
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Show playbook start
+      debug:
+        msg: "Starting provisioning of {{ inventory_hostname }}"
+
+  roles:
+    - role: common
+      tags: [common, always]
+    - role: docker
+      tags: [docker]
+
+  post_tasks:
+    - name: Verify Docker installation
+      command: docker info
+      register: docker_info
+      changed_when: false
+      tags: verify
+
+    - name: Display Docker info summary
+      debug:
+        msg:
+          - "Docker Server Version: {{ docker_info.stdout_lines | select('search', 'Server Version') | first | default('N/A') }}"
+          - "Containers: {{ docker_info.stdout_lines | select('search', 'Containers:') | first | default('N/A') }}"
+      when: docker_info is defined
+      tags: verify
+
+    - name: Provisioning complete
+      debug:
+        msg: "✅ Provisioning completed successfully on {{ inventory_hostname }}"

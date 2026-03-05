@@ -1,0 +1,14 @@
+---
+# Docker version constraints (empty means latest)
+docker_version: latest
+docker_compose_version: latest
+
+# User to add to docker group (defaults to ansible_user)
+docker_user: "{{ ansible_user }}"
+
+# Docker daemon options
+docker_daemon_options:
+  log-driver: "json-file"
+  log-opts:
+    max-size: "10m"
+    max-file: "3"
