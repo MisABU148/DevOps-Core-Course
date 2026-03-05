@@ -14,3 +14,8 @@
   become: yes
   when: docker_socket_permissions | default(false)
   tags:  docker_socket
+
+- name: restart docker
+  service:
+    name: docker
+    state: restarted
