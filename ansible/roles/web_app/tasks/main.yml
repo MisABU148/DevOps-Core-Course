@@ -1,0 +1,82 @@
+# roles/web_app/tasks/main.yml
+---
+# WIPE LOGIC - runs first when explicitly requested
+- name: "Include wipe tasks (runs only when web_app_wipe=true)"
+  include_tasks: wipe.yml
+  tags:
+    - web_app_wipe
+    - wipe
+
+# DEPLOYMENT BLOCK - runs after wipe (or independently)
+- name: "Include vault variables"
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "../group_vars/all.yml"
+    - "../../group_vars/all.yml"
+  tags: always
+
+- name: "Block: Deploy application with Docker Compose"
+  block:
+    - name: "Create application directory"
+      file:
+        path: "/opt/{{ app_name }}"
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: yes
+      tags: app_directory
+
+    - name: "Template docker-compose.yml"
+      template:
+        src: docker-compose.yml.j2
+        dest: "/opt/{{ app_name }}/docker-compose.yml"
+        mode: '0644'
+      register: compose_file
+      tags: app_template
+
+    - name: "Check if compose project is running"
+      command: docker-compose -f /opt/{{ app_name }}/docker-compose.yml ps -q
+      register: compose_ps
+      changed_when: false
+      failed_when: false
+      tags: app_check
+
+    - name: "Deploy with Docker Compose V2"
+      community.docker.docker_compose_v2:
+        project_src: "/opt/{{ app_name }}"
+        state: present
+        pull: always
+        remove_orphans: yes
+      register: compose_result
+      when: compose_file.changed or compose_ps.stdout == ''
+      tags: app_deploy
+
+    - name: "Wait for application to be ready"
+      wait_for:
+        port: "{{ app_port | default(8000) }}"
+        delay: 5
+        timeout: 30
+      when: compose_file.changed or compose_ps.stdout == ''
+      tags: app_health
+
+    - name: "Test application endpoint"
+      uri:
+        url: "http://localhost:{{ app_port | default(8000) }}/health"
+        method: GET
+        status_code: 200
+      register: health_result
+      ignore_errors: yes
+      when: compose_file.changed or compose_ps.stdout == ''
+      tags: app_health
+
+  rescue:
+    - name: "Handle deployment failure"
+      debug:
+        msg: "❌ Deployment failed: {{ ansible_failed_result.msg }}"
+      tags: app_debug
+
+  tags:
+    - web_app
+    - app_deploy
+    - compose

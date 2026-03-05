@@ -1,0 +1,19 @@
+# roles/web_app/templates/docker-compose.yml.j2
+version: '3.8'
+
+services:
+  {{ app_name }}:
+    image: "{{ docker_image }}:{{ docker_tag | default('latest') }}"
+    container_name: "{{ app_name }}"
+    restart: unless-stopped
+    ports:
+      - "{{ app_port }}:{{ app_port }}"
+    environment:
+      TZ: "UTC"
+      LOG_LEVEL: "info"
+      APP_ENV: "production"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

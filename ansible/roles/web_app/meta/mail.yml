@@ -1,0 +1,16 @@
+# roles/web_app/meta/main.yml
+---
+dependencies:
+  - role: docker
+    tags: [docker, docker_install]
+    vars:
+      docker_install_compose: true
+      
+  - role: common
+    tags: [common]
+    when: run_common | default(true)
+
+# Why dependencies are needed:
+# - docker role ensures Docker Engine and Compose are installed before web_app
+# - common role ensures basic system setup
+# - This allows running only web_app role: docker installs automatically

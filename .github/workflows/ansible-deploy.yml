@@ -1,0 +1,110 @@
+name: Ansible Deployment
+
+on:
+  push:
+    branches: [ main, master, lab06 ]
+    paths:
+      - 'ansible/**'
+      - '.github/workflows/ansible-deploy.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'ansible/**'
+
+jobs:
+  lint:
+    name:  Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ansible ansible-lint
+          ansible --version
+          ansible-lint --version
+
+      - name: Run ansible-lint
+        run: |
+          cd ansible
+          ansible-lint playbooks/*.yml
+
+  deploy:
+    name:  Deploy Application
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'  # Only deploy on push, not PR
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible
+          ansible --version
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+          # Test SSH connection
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} "echo 'SSH connection successful'"
+
+      - name: Create vault password file
+        run: |
+          echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > /tmp/vault_pass
+          chmod 600 /tmp/vault_pass
+
+      - name: Run Ansible playbook
+        run: |
+          cd ansible
+          ansible-playbook playbooks/deploy.yml \
+            -i inventory/hosts.ini \
+            --vault-password-file /tmp/vault_pass \
+            --extra-vars "web_app_wipe=true"  # Optional: clean reinstall
+        continue-on-error: false
+
+      - name: Clean up vault password
+        run: rm -f /tmp/vault_pass
+        if: always()
+
+      - name: Verify Deployment
+        run: |
+          echo " Waiting for application to start..."
+          sleep 15
+          echo " Checking application health..."
+          curl -f http://${{ secrets.VM_HOST }}:5000/health || (echo " Health check failed" && exit 1)
+          echo " Application is healthy!"
+
+      - name: Display deployment info
+        run: |
+          echo " Deployment completed successfully!"
+          echo " Application URL: http://${{ secrets.VM_HOST }}:5000"
+          echo " Health check: http://${{ secrets.VM_HOST }}:5000/health"
+
+  verify:
+    name:  Final Verification
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Verify application is running
+        run: |
+          echo " All checks passed!"
+          echo " Application deployed successfully"
+          curl -s http://${{ secrets.VM_HOST }}:5000/health | jq . || echo "Health check response: $(curl -s http://${{ secrets.VM_HOST }}:5000/health)"
