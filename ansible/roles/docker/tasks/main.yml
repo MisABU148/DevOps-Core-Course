@@ -1,81 +1,260 @@
 ---
-- name: Remove old Docker packages
-  apt:
-    name:
-      - docker
-      - docker-engine
-      - docker.io
-      - containerd
-      - runc
-    state: absent
-  tags: docker_cleanup
+- name: Docker role tasks
+  block:
+    - name: Docker installation tasks
+      block:
+        - name: Remove old Docker packages
+          apt:
+            name:
+              - docker
+              - docker-engine
+              - docker.io
+              - containerd
+              - runc
+            state: absent
+          tags: docker_install, docker_cleanup
 
-- name: Install required system packages
-  apt:
-    name:
-      - ca-certificates
-      - curl
-      - gnupg
-      - lsb-release
-    state: present
-  tags: docker_prereq
+        - name: Install required system packages
+          apt:
+            name:
+              - ca-certificates
+              - curl
+              - gnupg
+              - lsb-release
+              - apt-transport-https
+              - software-properties-common
+              - python3-pip
+              - python3-setuptools
+            state: present
+            update_cache: yes
+          tags: docker_install, docker_prereq
 
-- name: Add Docker GPG key
-  apt_key:
-    url: https://download.docker.com/linux/ubuntu/gpg
-    state: present
-  tags: docker_key
+        - name: Add Docker GPG key
+          apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+          register: gpg_key_result
+          tags: docker_install, docker_key
 
-- name: Add Docker repository
-  apt_repository:
-    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-    state: present
-    update_cache: yes
-  tags: docker_repo
+        - name: Add Docker repository
+          apt_repository:
+            repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+            update_cache: yes
+          tags: docker_install, docker_repo
 
-- name: Install Docker packages
-  apt:
-    name:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
-    state: present
-    update_cache: yes
-  notify: restart docker
-  tags: docker_install
+        - name: Install Docker packages
+          apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+            state: present
+            update_cache: yes
+          notify: restart docker
+          tags: docker_install
 
-- name: Install Python Docker module
-  pip:
-    name:
-      - docker
-      - docker-compose
-    state: present
-  tags: docker_python
+        - name: Install Python Docker module
+          pip:
+            name:
+              - docker
+              - docker-compose
+            state: present
+          tags: docker_install, docker_python
 
-- name: Ensure Docker service is running and enabled
-  systemd:
-    name: docker
-    state: started
-    enabled: yes
-  tags: docker_service
+      rescue:
+        - name: Wait 10 seconds before retry
+          wait_for:
+            timeout: 10
+          tags: docker_install
 
-- name: Add user to docker group
-  user:
-    name: "{{ docker_user | default(ansible_user) }}"
-    groups: docker
-    append: yes
-  notify: restart docker
-  tags: docker_user
+        - name: Retry GPG key addition on failure
+          apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+          when: gpg_key_result is failed
+          tags: docker_install, docker_key
 
-- name: Check Docker version
-  command: docker --version
-  register: docker_version
-  changed_when: false
-  tags: docker_info
+        - name: Update apt cache again
+          apt:
+            update_cache: yes
+          tags: docker_install
 
-- name: Display Docker version
-  debug:
-    msg: "Installed {{ docker_version.stdout }}"
-  tags: docker_info
+        - name: Retry Docker installation
+          apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+            state: present
+          tags: docker_install
+
+      tags: docker_install
+
+    - name: Docker configuration tasks
+      block:
+        - name: Ensure Docker service is running and enabled
+          systemd:
+            name: docker
+            state: started
+            enabled: yes
+          tags: docker_config, docker_service
+
+        - name: Add user to docker group
+          user:
+            name: "{{ docker_user | default(ansible_user) }}"
+            groups: docker
+            append: yes
+          notify: restart docker
+          tags: docker_config, docker_user
+
+        - name: Check Docker version
+          command: docker --version
+          register: docker_version
+          changed_when: false
+          tags: docker_config, docker_info
+
+        - name: Display Docker version
+          debug:
+            msg: "Installed {{ docker_version.stdout }}"
+          tags: docker_config, docker_info
+
+        - name: Create application directory
+          file:
+            path: "/opt/{{ app_name | default('myapp') }}"
+            state: directory
+            owner: "{{ ansible_user | default('root') }}"
+            group: "{{ ansible_user | default('root') }}"
+            mode: '0755'
+          when: app_name is defined
+          tags: docker_config, app_directory
+
+        - name: Log in to Docker Hub
+          docker_login:
+            username: "{{ dockerhub_username | default(omit) }}"
+            password: "{{ dockerhub_password | default(omit) }}"
+          no_log: true
+          when: dockerhub_username is defined and dockerhub_password is defined
+          tags: docker_config, docker_login
+
+        - name: Pull Docker image
+          docker_image:
+            name: "{{ docker_image | default('nginx') }}"
+            tag: "{{ docker_image_tag | default('latest') }}"
+            source: pull
+            force_source: yes
+          register: pull_result
+          when: docker_image is defined
+          tags: docker_config, docker_pull
+
+        - name: Display pull result
+          debug:
+            msg: "Image {{ docker_image | default('nginx') }}:{{ docker_image_tag | default('latest') }} pulled successfully"
+          when: pull_result is defined and pull_result.changed
+          tags: docker_config, docker_pull
+
+        - name: Check if container is running
+          docker_container_info:
+            name: "{{ app_container_name | default('myapp_container') }}"
+          register: container_info
+          when: app_container_name is defined
+          tags: docker_config, docker_check
+
+        - name: Stop existing container
+          docker_container:
+            name: "{{ app_container_name }}"
+            state: stopped
+          when:
+            - app_container_name is defined
+            - container_info is defined
+            - container_info.exists
+            - container_info.container.State.Running
+          tags: docker_config, docker_stop
+
+        - name: Remove old container
+          docker_container:
+            name: "{{ app_container_name }}"
+            state: absent
+          when:
+            - app_container_name is defined
+            - container_info is defined
+            - container_info.exists
+          tags: docker_config, docker_remove
+
+        - name: Run new container
+          docker_container:
+            name: "{{ app_container_name }}"
+            image: "{{ docker_image }}:{{ docker_image_tag }}"
+            state: started
+            restart_policy: "{{ restart_policy | default('always') }}"
+            ports:
+              - "{{ app_port | default('80') }}:{{ app_port | default('80') }}"
+            env:
+              APP_NAME: "{{ app_name | default('myapp') }}"
+              APP_PORT: "{{ app_port | default('80') }}"
+              TZ: "{{ environment_variables.TZ | default('UTC') }}"
+              LOG_LEVEL: "{{ environment_variables.LOG_LEVEL | default('info') }}"
+            networks:
+              - name: bridge
+            pull: yes
+          register: container_start
+          notify: restart app
+          when:
+            - app_container_name is defined
+            - docker_image is defined
+          tags: docker_config, docker_run
+
+        - name: Wait for application to be ready (port check)
+          wait_for:
+            port: "{{ app_port | default('80') }}"
+            host: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+            delay: 5
+            timeout: 60
+            state: started
+          when: app_port is defined
+          tags: docker_config, health_check
+
+        - name: Verify health endpoint
+          uri:
+            url: "http://127.0.0.1:{{ app_port }}/health"
+            method: GET
+            status_code: 200
+            timeout: 10
+          register: health_result
+          retries: 5
+          delay: 3
+          until: health_result.status == 200
+          ignore_errors: yes
+          when: app_port is defined
+          tags: docker_config, health_check
+
+        - name: Display health check result
+          debug:
+            msg:
+              - "Health check: {{ '✅ PASSED' if health_result.status == 200 else '❌ FAILED' }}"
+              - "Application is running on port {{ app_port | default('80') }}"
+          when: health_result is defined and health_result.status is defined
+          tags: docker_config, health_check
+
+        - name: Log out from Docker Hub (cleanup)
+          docker_login:
+            state: absent
+          when: dockerhub_username is defined and dockerhub_password is defined
+          tags: docker_config, docker_logout
+
+      tags: docker_config
+
+  always:
+    - name: Ensure Docker service is enabled and started
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      tags: docker
+
+  become: true
+  tags: docker

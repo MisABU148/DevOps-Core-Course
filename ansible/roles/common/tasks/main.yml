@@ -1,105 +1,81 @@
-- name: Create application directory
-  file:
-    path: /opt/{{ app_name }}
-    state: directory
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    mode: '0755'
-  tags: app_directory
+---
+- name: Common role tasks
+  block:
+    - name: Package installation tasks
+      block:
+        - name: Update apt cache
+          apt:
+            update_cache: yes
+            cache_valid_time: 3600
+          register: apt_update_result
+          tags: packages
 
-- name: Log in to Docker Hub
-  docker_login:
-    username: "{{ dockerhub_username }}"
-    password: "{{ dockerhub_password }}"
-  no_log: true
-  tags: docker_login
+        - name: Install common packages
+          apt:
+            name:
+              - curl
+              - wget
+              - git
+              - vim
+              - htop
+              - tree
+            state: present
+          tags: packages
 
-- name: Pull Docker image
-  docker_image:
-    name: "{{ docker_image }}"
-    tag: "{{ docker_image_tag }}"
-    source: pull
-    force_source: yes
-  register: pull_result
-  tags: docker_pull
+      rescue:
+        - name: Fix apt cache on failure
+          command: apt-get update --fix-missing
+          register: fix_missing_result
+          changed_when: false
+          tags: packages
 
-- name: Display pull result
-  debug:
-    msg: "Image {{ docker_image }}:{{ docker_image_tag }} pulled successfully"
-  when: pull_result.changed
-  tags: docker_pull
+        - name: Retry package installation
+          apt:
+            name:
+              - curl
+              - wget
+              - git
+              - vim
+              - htop
+              - tree
+            state: present
+          when: fix_missing_result is success
+          tags: packages
 
-- name: Check if container is running
-  docker_container_info:
-    name: "{{ app_container_name }}"
-  register: container_info
-  tags: docker_check
+      tags: packages
 
-- name: Stop existing container
-  docker_container:
-    name: "{{ app_container_name }}"
-    state: stopped
-  when: container_info.exists and container_info.container.State.Running
-  tags: docker_stop
+    - name: User management tasks
+      block:
+        - name: Create application user
+          user:
+            name: "{{ ansible_user | default('appuser') }}"
+            state: present
+            shell: /bin/bash
+            groups: sudo
+            append: yes
+          tags: users
 
-- name: Remove old container
-  docker_container:
-    name: "{{ app_container_name }}"
-    state: absent
-  when: container_info.exists
-  tags: docker_remove
+        - name: Set up user SSH directory
+          file:
+            path: "/home/{{ ansible_user | default('appuser') }}/.ssh"
+            state: directory
+            mode: '0700'
+            owner: "{{ ansible_user | default('appuser') }}"
+            group: "{{ ansible_user | default('appuser') }}"
+          tags: users
 
-- name: Run new container
-  docker_container:
-    name: "{{ app_container_name }}"
-    image: "{{ docker_image }}:{{ docker_image_tag }}"
-    state: started
-    restart_policy: "{{ restart_policy }}"
-    ports:
-      - "{{ app_port }}:{{ app_port }}"
-    env:
-      APP_NAME: "{{ app_name }}"
-      APP_PORT: "{{ app_port }}"
-      TZ: "{{ environment_variables.TZ | default('UTC') }}"
-      LOG_LEVEL: "{{ environment_variables.LOG_LEVEL | default('info') }}"
-    networks:
-      - name: bridge
-    pull: yes
-  register: container_start
-  notify: restart app
-  tags: docker_run
+      tags: users
 
-- name: Wait for application to be ready (port check)
-  wait_for:
-    port: "{{ app_port }}"
-    host: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
-    delay: 5
-    timeout: 60
-    state: started
-  tags: health_check
+  always:
+    - name: Log completion to /tmp
+      copy:
+        content: |
+          Common role completed at {{ ansible_date_time.iso8601 }}
+          Host: {{ ansible_hostname }}
+          OS: {{ ansible_os_family }}
+        dest: "/tmp/common_role_completed_{{ ansible_date_time.epoch }}.log"
+        mode: '0644'
+      tags: common
 
-- name: Verify health endpoint
-  uri:
-    url: "http://127.0.0.1:{{ app_port }}/health"
-    method: GET
-    status_code: 200
-    timeout: 10
-  register: health_result
-  retries: 5
-  delay: 3
-  until: health_result.status == 200
-  ignore_errors: yes
-  tags: health_check
-
-- name: Display health check result
-  debug:
-    msg:
-      - "Health check: {{ '✅ PASSED' if health_result.status == 200 else '❌ FAILED' }}"
-      - "Application is running on port {{ app_port }}"
-  when: health_result.status is defined
-  tags: health_check
-
-- name: Log out from Docker Hub (cleanup)
-  docker_login:
-    state: absent
-  tags: docker_logout
+  become: true
+  tags: common
