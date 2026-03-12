@@ -1,0 +1,8 @@
+---
+- name: restart app
+  shell: docker restart {{ app_container_name }}
+  listen: "restart app"
+
+- name: reload app
+  shell: docker kill -s HUP {{ app_container_name }}
+  listen: "reload app"
