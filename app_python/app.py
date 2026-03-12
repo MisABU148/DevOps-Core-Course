@@ -2,6 +2,7 @@ import logging
 import os
 import platform
 import socket
+import json
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -9,8 +10,36 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+
+        if hasattr(record, "method"):
+            log_record["method"] = record.method
+
+        if hasattr(record, "path"):
+            log_record["path"] = record.path
+
+        if hasattr(record, "status_code"):
+            log_record["status_code"] = record.status_code
+
+        if hasattr(record, "client_ip"):
+            log_record["client_ip"] = record.client_ip
+
+        return json.dumps(log_record)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+
+logger = logging.getLogger("devops-app")
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+logger.propagate = False
 
 HOST = os.getenv('HOST', '0.0.0.0')
 PORT = int(os.getenv('PORT', 5000))
@@ -21,6 +50,48 @@ app = FastAPI(
     description="Service information and system monitoring API",
     version="1.0.0"
 )
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time_req = datetime.now()
+
+    client_ip = request.client.host if request.client else "unknown"
+
+    try:
+        response = await call_next(request)
+
+        process_time = (datetime.now() - start_time_req).total_seconds()
+
+        logger.info(
+            "HTTP request",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "client_ip": client_ip
+            }
+        )
+
+        return response
+
+    except Exception as exc:
+        logger.error(
+            "HTTP error",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "client_ip": client_ip
+            }
+        )
+        raise exc
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("application startup")
+
+@app.get("/error-test")
+async def error_test(request: Request):
+    raise RuntimeError("Test error log")
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception):
@@ -130,7 +201,15 @@ async def get_service_info(request: Request):
             ]
         }
 
-        logger.info(f"GET / request from {client_ip}")
+        logger.info(
+            "service info requested",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 200,
+                "client_ip": client_ip
+            }
+        )
         return response
 
     except Exception as e:
@@ -161,12 +240,40 @@ async def health_check():
         logger.error(f"Error in health check: {e}")
         raise HTTPException(status_code=500, detail="Health check failed")
 
+@app.get("/error-test")
+async def error_test(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    logger.error(
+        "Test error log",
+        extra={
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "level": "ERROR",
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": 500,
+            "client_ip": client_ip
+        }
+    )
+    raise HTTPException(status_code=500, detail="Test error")
 
 if __name__ == "__main__":
     import uvicorn
 
-    logger.info(f"Starting DevOps Info Service on {HOST}:{PORT}")
-    logger.info(f"Debug mode: {DEBUG}")
+    logger.info(
+        "application starting",
+        extra={
+            "host": HOST,
+            "port": PORT,
+            "debug": DEBUG
+        }
+    )
+
+    logger.info(
+        "debug mode configuration",
+        extra={
+            "debug": DEBUG
+        }
+    )
 
     uvicorn.run(
         "app:app",
