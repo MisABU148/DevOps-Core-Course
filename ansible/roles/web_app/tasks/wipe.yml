@@ -1,0 +1,67 @@
+# roles/web_app/tasks/wipe.yml - исправленная версия
+---
+- name: "Wipe web application block"
+  block:
+    - name: "Display wipe start"
+      debug:
+        msg: "🗑️ Wiping application: {{ app_name }} from {{ inventory_hostname }}"
+      tags: web_app_wipe
+
+    - name: "Check if application directory exists"
+      stat:
+        path: "/opt/{{ app_name }}"
+      register: app_dir
+      tags: web_app_wipe
+
+    - name: "Stop and remove containers with Docker Compose V2"
+      community.docker.docker_compose_v2:
+        project_src: "/opt/{{ app_name }}"
+        state: absent
+        remove_volumes: true
+        remove_orphans: true
+      register: compose_down
+      when: app_dir.stat.exists
+      ignore_errors: yes
+      tags: web_app_wipe
+
+    - name: "Remove docker-compose.yml file"
+      file:
+        path: "/opt/{{ app_name }}/docker-compose.yml"
+        state: absent
+      when: app_dir.stat.exists
+      tags: web_app_wipe
+
+    - name: "Remove application directory"
+      file:
+        path: "/opt/{{ app_name }}"
+        state: absent
+      become: yes
+      when: app_dir.stat.exists
+      tags: web_app_wipe
+
+    - name: "Optionally remove Docker images (if configured)"
+      community.docker.docker_image:
+        name: "{{ docker_image }}"
+        tag: "{{ docker_tag | default('latest') }}"
+        state: absent
+      when: web_app_wipe_images | default(false) | bool
+      ignore_errors: yes
+      tags: web_app_wipe
+
+    - name: "Log wipe completion"
+      debug:
+        msg:
+          - "✅ Wipe completed for {{ app_name }} on {{ inventory_hostname }}"
+          - "Directory removed: /opt/{{ app_name }}"
+          - "Containers stopped and removed: {{ compose_down.changed | default(false) }}"
+      tags: web_app_wipe
+
+    - name: "Log wipe completion to console only"
+      debug:
+        msg: "Wipe completed at {{ ansible_date_time.iso8601 }}"
+      tags: web_app_wipe
+
+  when: web_app_wipe | default(false) | bool
+  tags:
+    - web_app_wipe
+    - wipe

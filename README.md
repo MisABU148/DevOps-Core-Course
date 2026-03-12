@@ -1,9 +1,20 @@
 # DevOps Engineering: Core Practices
+##  CI/CD Status
 
-[![Labs](https://img.shields.io/badge/Labs-18-blue)](#labs)
-[![Exam](https://img.shields.io/badge/Exam-Optional-green)](#exam-alternative)
-[![Duration](https://img.shields.io/badge/Duration-18%20Weeks-lightgrey)](#course-roadmap)
+[![Ansible Deployment](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/ansible-deploy.yml/badge.svg?branch=main)](https://github.com/MisABU148/DevOps-Core-Course/actions/workflows/ansible-deploy.yml)
 
+### Application
+- **URL**: http://46.21.244.23:5000
+- **Health Check**: http://46.21.244.23:5000/health
+
+##  Ansible Roles
+- `common` - Base server configuration
+- `docker` - Docker installation
+- `web_app` - Application deployment with Docker Compose
+
+##  Wipe Logic
+- `web_app_wipe: false` - Normal deployment
+- `web_app_wipe: true` - Clean reinstallation
 Master **production-grade DevOps practices** through hands-on labs. Build, containerize, deploy, monitor, and scale applications using industry-standard tools.
 
 ---
