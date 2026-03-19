@@ -8,7 +8,10 @@ from typing import Dict
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+
+from metrics import *
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
@@ -51,10 +54,27 @@ app = FastAPI(
     version="1.0.0"
 )
 
+def normalize_endpoint(path: str) -> str:
+    """Нормализует путь для метрик (избегает высокого cardinality)"""
+    if path.startswith("/metrics"):
+        return "/metrics"
+    elif path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi.json"):
+        return "/docs"
+    elif path.startswith("/error-test"):
+        return "/error-test"
+    else:
+        # Для всех остальных эндпоинтов используем сам путь
+        return path
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    start_time_req = datetime.now()
+    # Увеличиваем счетчик активных запросов
+    http_requests_in_progress.inc()
 
+    # Получаем нормализованный endpoint
+    endpoint = normalize_endpoint(request.url.path)
+
+    start_time_req = datetime.now()
     client_ip = request.client.host if request.client else "unknown"
 
     try:
@@ -62,19 +82,39 @@ async def log_requests(request: Request, call_next):
 
         process_time = (datetime.now() - start_time_req).total_seconds()
 
+        # Записываем метрики
+        http_requests_total.labels(
+            method=request.method,
+            endpoint=endpoint,
+            status_code=response.status_code
+        ).inc()
+
+        http_request_duration_seconds.labels(
+            method=request.method,
+            endpoint=endpoint
+        ).observe(process_time)
+
         logger.info(
             "HTTP request",
             extra={
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": response.status_code,
-                "client_ip": client_ip
+                "client_ip": client_ip,
+                "duration_seconds": process_time
             }
         )
 
         return response
 
     except Exception as exc:
+        # Для ошибок тоже записываем метрики
+        http_requests_total.labels(
+            method=request.method,
+            endpoint=endpoint,
+            status_code=500
+        ).inc()
+
         logger.error(
             "HTTP error",
             extra={
@@ -84,6 +124,9 @@ async def log_requests(request: Request, call_next):
             }
         )
         raise exc
+    finally:
+        # Уменьшаем счетчик активных запросов
+        http_requests_in_progress.dec()
 
 @app.on_event("startup")
 async def startup_event():
@@ -156,15 +199,17 @@ def get_uptime() -> Dict[str, str]:
 
 @app.get("/", response_class=JSONResponse)
 async def get_service_info(request: Request):
-    """
-    Main endpoint - returns comprehensive service and system information
-    """
+    """Main endpoint - returns comprehensive service and system information"""
+    # Увеличиваем счетчик вызовов эндпоинта
+    endpoint_calls.labels(endpoint="/").inc()
+
     try:
-        # Получаем информацию о запросе
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get('user-agent', 'unknown')
 
-        uptime = get_uptime()
+        # Измеряем время сбора системной информации
+        with system_info_duration.time():
+            uptime = get_uptime()
 
         response = {
             "service": {
@@ -196,20 +241,12 @@ async def get_service_info(request: Request):
             "endpoints": [
                 {"path": "/", "method": "GET", "description": "Service information"},
                 {"path": "/health", "method": "GET", "description": "Health check"},
+                {"path": "/metrics", "method": "GET", "description": "Prometheus metrics"},
                 {"path": "/docs", "method": "GET", "description": "Swagger documentation"},
                 {"path": "/redoc", "method": "GET", "description": "ReDoc documentation"}
             ]
         }
 
-        logger.info(
-            "service info requested",
-            extra={
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": 200,
-                "client_ip": client_ip
-            }
-        )
         return response
 
     except Exception as e:
@@ -219,9 +256,10 @@ async def get_service_info(request: Request):
 
 @app.get("/health", response_class=JSONResponse)
 async def health_check():
-    """
-    Health check endpoint for monitoring and Kubernetes probes
-    """
+    """Health check endpoint for monitoring and Kubernetes probes"""
+    # Увеличиваем счетчик вызовов эндпоинта
+    endpoint_calls.labels(endpoint="/health").inc()
+
     try:
         uptime = get_uptime()
 
@@ -233,7 +271,6 @@ async def health_check():
             "version": "1.0.0"
         }
 
-        logger.debug("Health check executed")
         return response
 
     except Exception as e:
@@ -255,6 +292,15 @@ async def error_test(request: Request):
         }
     )
     raise HTTPException(status_code=500, detail="Test error")
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """Prometheus metrics endpoint"""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
 
 if __name__ == "__main__":
     import uvicorn

@@ -24,5 +24,9 @@ storage_config:
   filesystem:
     directory: /loki/chunks
 
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 336h  # 14 days
+
 limits_config:
   retention_period: 168h

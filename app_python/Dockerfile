@@ -11,7 +11,7 @@ RUN groupadd -r mariaapp && useradd -r -g mariaapp mariaapp
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-COPY app.py .
+COPY *.py .
 COPY requirements.txt .
 
 RUN chown -R mariaapp:mariaapp /app
@@ -21,4 +21,4 @@ EXPOSE 5000
 
 ENV HOST=0.0.0.0 PORT=5000
 
-CMD ["python", "app.py"]
+CMD uvicorn app:app --host 0.0.0.0 --port 5000
