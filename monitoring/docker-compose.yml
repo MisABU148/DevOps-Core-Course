@@ -1,6 +1,38 @@
-version: "3.9"
-
 services:
+  prometheus:
+    image: prom/prometheus:v3.9.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'      # Хранить данные 15 дней
+      - '--storage.tsdb.retention.size=10GB'     # Максимальный размер БД 10GB
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   loki:
     image: grafana/loki:3.0.0
     container_name: loki
@@ -12,6 +44,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
     networks:
       - monitoring
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -21,10 +54,10 @@ services:
           cpus: '0.5'
           memory: 512M
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:3100/ready" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
 
   promtail:
@@ -39,6 +72,7 @@ services:
     command: -config.file=/etc/promtail/config.yml
     networks:
       - monitoring
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -48,11 +82,13 @@ services:
           cpus: '0.25'
           memory: 256M
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9080/targets" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://localhost:9080/targets"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
+    depends_on:
+      - loki
 
   grafana:
     image: grafana/grafana:12.3.1
@@ -61,24 +97,32 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
     networks:
       - monitoring
-    env_file:
-      - .env
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_METRICS_ENABLED=true
+      - GF_METRICS_ENDPOINT_ENABLED=true
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
           cpus: '0.5'
           memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:3000/api/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
+    depends_on:
+      - prometheus
+      - loki
 
   python-app:
     build: ../app_python
@@ -87,27 +131,36 @@ services:
       - "8000:5000"
     networks:
       - monitoring
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5000
+      - DEBUG=False
     labels:
       logging: "promtail"
       app: "devops-python"
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
           cpus: '0.5'
-          memory: 512M
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
 
 volumes:
+  prometheus-data:
+    driver: local
   loki_data:
+    driver: local
   grafana_data:
+    driver: local
 
 networks:
   monitoring:
