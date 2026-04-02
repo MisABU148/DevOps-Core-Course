@@ -1,0 +1,28 @@
+replicaCount: 1
+
+image:
+  repository: your-dockerhub-username/your-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+  nodePort: null
+
+env:
+  ENV: dev
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "500m"
+
+probes:
+  path: /health
+  livenessDelay: 10
+  readinessDelay: 5
