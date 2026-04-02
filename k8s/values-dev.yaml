@@ -1,0 +1,11 @@
+replicaCount: 1
+
+service:
+  type: NodePort
+  nodePort: 30007
+
+image:
+  tag: dev
+
+env:
+  ENV: development
