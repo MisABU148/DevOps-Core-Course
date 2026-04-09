@@ -1,0 +1,18 @@
+replicaCount: 3
+
+service:
+  type: LoadBalancer
+
+image:
+  tag: stable
+
+env:
+  ENV: production
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
