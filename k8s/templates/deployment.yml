@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: python-app
+  name: {{ include "app.fullname" . }}
   labels:
-    app: python-app
+    app: {{ include "app.name" . }}
 spec:
-  replicas: 3
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: python-app
+      app: {{ include "app.name" . }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -17,21 +17,51 @@ spec:
   template:
     metadata:
       labels:
-        app: python-app
+        app: {{ include "app.name" . }}
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "app-role"
+        vault.hashicorp.com/agent-inject-secret-config: "secret/data/app"
+
+        # BONUS (template rendering)
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "secret/data/app" -}}
+          USERNAME={{ .Data.data.username }}
+          PASSWORD={{ .Data.data.password }}
+          {{- end }}
     spec:
+      serviceAccountName: default
       containers:
-        - name: python-app
-          image: your-dockerhub-username/your-app:latest
+        - name: {{ include "app.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           ports:
             - containerPort: 5000
 
+          # ✅ Kubernetes Secret injection
+          envFrom:
+            - secretRef:
+                name: {{ include "app.fullname" . }}-secret
+
+          # (альтернатива — если хочешь явно)
+          # env:
+          #   - name: USERNAME
+          #     valueFrom:
+          #       secretKeyRef:
+          #         name: {{ include "app.fullname" . }}-secret
+          #         key: username
+
+          #   - name: PASSWORD
+          #     valueFrom:
+          #       secretKeyRef:
+          #         name: {{ include "app.fullname" . }}-secret
+          #         key: password
+
+          env:
+            - name: ENV
+              value: "production"
+
           resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "500m"
+            {{- toYaml .Values.resources | nindent 12 }}
 
           readinessProbe:
             httpGet:
@@ -46,7 +76,3 @@ spec:
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 10
-
-          env:
-            - name: ENV
-              value: "production"

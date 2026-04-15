@@ -2,6 +2,12 @@
 python-app
 {{- end }}
 
+{{- define "python-app.fullname" -}}
+{{ include "python-app.name" . }}-{{ .Release.Name }}
+{{- end }}
+
 {{- define "python-app.labels" -}}
-app: python-app
+app: {{ include "python-app.name" . }}
+app.kubernetes.io/name: {{ include "python-app.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
