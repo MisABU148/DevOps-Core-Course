@@ -14,6 +14,7 @@ spec:
     rollingUpdate:
       maxUnavailable: 1
       maxSurge: 1
+
   template:
     metadata:
       labels:
@@ -23,42 +24,44 @@ spec:
         vault.hashicorp.com/role: "app-role"
         vault.hashicorp.com/agent-inject-secret-config: "secret/data/app"
 
-        # BONUS (template rendering)
         vault.hashicorp.com/agent-inject-template-config: |
           {{- with secret "secret/data/app" -}}
           USERNAME={{ .Data.data.username }}
           PASSWORD={{ .Data.data.password }}
           {{- end }}
+
     spec:
       serviceAccountName: default
+
       containers:
         - name: {{ include "app.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           ports:
             - containerPort: 5000
 
-          # ✅ Kubernetes Secret injection
+          # Secrets
           envFrom:
             - secretRef:
                 name: {{ include "app.fullname" . }}-secret
 
-          # (альтернатива — если хочешь явно)
-          # env:
-          #   - name: USERNAME
-          #     valueFrom:
-          #       secretKeyRef:
-          #         name: {{ include "app.fullname" . }}-secret
-          #         key: username
+            # ConfigMap ENV
+            - configMapRef:
+                name: {{ include "app.fullname" . }}-env
 
-          #   - name: PASSWORD
-          #     valueFrom:
-          #       secretKeyRef:
-          #         name: {{ include "app.fullname" . }}-secret
-          #         key: password
-
+          # env
           env:
             - name: ENV
               value: "production"
+
+          # Volume mounts
+          volumeMounts:
+            # ConfigMap
+            - name: config-volume
+              mountPath: /config
+
+            # PVC
+            - name: data-volume
+              mountPath: /data
 
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -76,3 +79,15 @@ spec:
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 10
+
+      # Volumes
+      volumes:
+        # ConfigMap file
+        - name: config-volume
+          configMap:
+            name: {{ include "app.fullname" . }}-config
+
+        # Persistent Volume
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: {{ include "app.fullname" . }}-pvc
