@@ -1,0 +1,5 @@
+{
+  "appName": "python-app",
+  "environment": "dev",
+  "featureFlag": true
+}

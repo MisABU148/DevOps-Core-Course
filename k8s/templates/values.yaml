@@ -1,11 +1,10 @@
-secrets:
-  username: "admin"
-  password: "changeme"
+image:
+  repository: mariablood/python-app
+  tag: latest
 
-resources:
-  requests:
-    cpu: "100m"
-    memory: "128Mi"
-  limits:
-    cpu: "250m"
-    memory: "256Mi"
+service:
+  port: 3000
+
+persistence:
+  enabled: true
+  size: 100Mi
