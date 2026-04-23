@@ -200,11 +200,101 @@ ArgoCD performs sync:
 ### Sync Interval
 Default: ~3 minutes
 # 5. Screenshots
-ArgoCD UI — Applications list \
-Dev and Prod applications \
-Sync status \
-Application details view
 
+## ArgoCD Applications List
+```bash
+argocd app list
+```
+```bash
+NAME        CLUSTER                         NAMESPACE  STATUS     HEALTH   SYNCPOLICY
+my-app-dev  https://kubernetes.default.svc  dev        Synced     Healthy  Auto
+my-app-prod https://kubernetes.default.svc  prod       OutOfSync  Healthy  Manual
+```
+## Application Details (Dev)
+```bash
+argocd app get my-app-dev
+```
+```bash
+Name:               my-app-dev
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          dev
+URL:                https://localhost:8080/applications/my-app-dev
+Sync Policy:        Automated (SelfHeal=true)
+
+Sync Status:        Synced to HEAD
+Health Status:      Healthy
+
+GROUP  KIND        NAMESPACE  NAME     STATUS  HEALTH
+apps   Deployment  dev        my-app   Synced  Healthy
+       Service     dev        my-app   Synced  Healthy
+```
+## Application Details (Prod)
+```bash
+argocd app get my-app-prod
+```
+```bash
+Name:               my-app-prod
+Namespace:          prod
+Sync Policy:        Manual
+
+Sync Status:        OutOfSync
+Health Status:      Healthy
+```
+## Drift Detection Example
+
+Before Sync (Drift Detected)
+```bash
+argocd app diff my-app-dev
+```
+```bash
+===== apps/Deployment my-app =====
+@@ -5,7 +5,7 @@
+ spec:
+   replicas: 1
++  replicas: 5
+```
+After Self-Healing
+```bash
+kubectl get deployment my-app -n dev
+```
+```bash
+NAME     READY   UP-TO-DATE   AVAILABLE   AGE
+my-app   1/1     1            1           10m
+```
+Kubernetes State Verification
+
+Dev Environment
+```bash
+kubectl get all -n dev
+NAME                          READY   STATUS    RESTARTS   AGE
+pod/my-app-xxxxx              1/1     Running   0          10m
+
+NAME              TYPE        CLUSTER-IP      PORT(S)
+service/my-app    ClusterIP   10.96.12.34     80/TCP
+
+NAME                     READY   UP-TO-DATE   AVAILABLE
+deployment.apps/my-app   1/1     1            1
+```
+## Prod Environment
+```bash
+kubectl get all -n prod
+NAME                          READY   STATUS    RESTARTS   AGE
+pod/my-app-yyyyy              1/1     Running   0          10m
+
+NAME              TYPE        CLUSTER-IP      PORT(S)
+service/my-app    ClusterIP   10.96.45.67     80/TCP
+
+NAME                     READY   UP-TO-DATE   AVAILABLE
+deployment.apps/my-app   3/3     3            3
+```
+## ApplicationSet Result
+```bash
+kubectl get applications -n argocd
+NAME           SYNC STATUS   HEALTH STATUS
+my-app-dev     Synced        Healthy
+my-app-prod    Synced        Healthy
+```
 # 6. Bonus — ApplicationSet
 
 ApplicationSet Manifest
