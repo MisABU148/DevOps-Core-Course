@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: my-app
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - name: dev
+            namespace: dev
+            values: values-dev.yaml
+          - name: prod
+            namespace: prod
+            values: values-prod.yaml
+
+  template:
+    metadata:
+      name: my-app-{{name}}
+
+    spec:
+      project: default
+
+      source:
+        repoURL: https://github.com/MisABU148/DevOps-Core-Course
+        targetRevision: HEAD
+        path: helm
+        helm:
+          valueFiles:
+            - "{{values}}"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
