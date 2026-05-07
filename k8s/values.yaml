@@ -1,28 +1,19 @@
-replicaCount: 1
+apiVersion: v1
+kind: Service
 
-image:
-  repository: your-dockerhub-username/your-app
-  tag: latest
-  pullPolicy: IfNotPresent
+metadata:
+  name: python-app-service
 
-service:
-  type: ClusterIP
-  port: 80
-  targetPort: 5000
-  nodePort: null
+  labels:
+    app: python-app
 
-env:
-  ENV: dev
+spec:
+  type: {{ .Values.service.type }}
 
-resources:
-  requests:
-    memory: "128Mi"
-    cpu: "100m"
-  limits:
-    memory: "256Mi"
-    cpu: "500m"
+  selector:
+    app: python-app
 
-probes:
-  path: /health
-  livenessDelay: 10
-  readinessDelay: 5
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      nodePort: {{ .Values.service.nodePort }}

@@ -11,3 +11,11 @@ app: {{ include "python-app.name" . }}
 app.kubernetes.io/name: {{ include "python-app.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{- define "python-app.headlessServiceName" -}}
+{{ include "python-app.fullname" . }}-headless
+{{- end }}
+
+{{- define "python-app.headlessServiceName" -}}
+{{ include "python-app.fullname" . }}-headless
+{{- end }}
